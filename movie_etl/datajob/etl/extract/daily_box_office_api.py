@@ -3,9 +3,8 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import json
 import pandas as pd
-
 from infra.hdfs_client import get_client
-from infra.util import cal_std_day_yyyymmdd, execute_rest_api
+from infra.util import cal_std_day,cal_std_day_yyyymmdd, execute_rest_api
 
 
 class DailyBoxOfficeExtractor:
@@ -17,7 +16,7 @@ class DailyBoxOfficeExtractor:
     def extract_data(cls, befor_cnt=1):
 
         for i in range(1, befor_cnt+1):
-            # target_date = '20180101'
+            target_date = '2018-01-01'
             params = cls.__create_param(i)
 
             try:
@@ -34,7 +33,7 @@ class DailyBoxOfficeExtractor:
     def __create_param(cls, befor_day):
         return {
             'key': cls.SERVICE_KEY,
-            'targetDt': cal_std_day_yyyymmdd(befor_day)
+            'targetDt': cal_std_day(befor_day)
         }
 
     @classmethod

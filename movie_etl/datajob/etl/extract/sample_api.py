@@ -15,7 +15,7 @@ class SampleApiExtractor:
     #           _메서드, _변수    __메서드, __변수
     URL = 'http://apis.data.go.kr/1352000/ODMS_COVID_04/callCovid04Api'  # 값이 변경되지 않는 상수는 대문자로
     SERVICE_KEY = 'NJZf0IxXtTO8vlgpcZ8TbyYzgziNOLkFbn8dWmvTRbx4AYWTjdPnpNd2nbroAcineXLi971rvGbpoy23qSMPmQ=='
-    FILE_DIR = '/corona_data/patient/'
+    FILE_DIR = '//patient/'
 
     @classmethod
     def extract_data(cls, befor_cnt=1):
