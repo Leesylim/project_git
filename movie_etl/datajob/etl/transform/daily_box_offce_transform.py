@@ -1,3 +1,111 @@
+from pyspark.sql.functions import col, split
+from infra.jdbc import DataWarehouse, find_data, save_data
+from infra.spark_session import get_spark_session
+from infra.util import cal_std_day, cal_std_day_yyyymmdd
+
+
+class DailyBoxOfficeTransformer:
+
+    # date = '20220801'
+
+    @classmethod
+    def transform(cls, befor_cnt):
+        df_movie_select = cls.__load_daily_box_office_json(befor_cnt)
+            
+        dump_df = cls.__select_columns(df_movie_select, 0)
+        tmp_df = dump_df
+
+        for i in range(1, 10):
+            dump_df = cls.__select_columns(df_movie_select, i)
+            tmp_df = tmp_df.union(dump_df)
+
+        daily_boxoffice_df = cls.__rename_columns(tmp_df)
+        
+        save_data(DataWarehouse, daily_boxoffice_df, 'DAILY_BOXOFFICE')
+
+        box_office_df = cls.load_box_office_table_dbo_id()
+        tmp_df = cls.__select_acc(df_movie_select, 0)
+        
+        for i in range(1, 10):
+            dump_df = cls.__select_acc(df_movie_select, i)
+            tmp_df = tmp_df.union(dump_df)
+
+        accumulate_df = cls.__generate_movie_accumulate(tmp_df, box_office_df)
+
+        save_data(DataWarehouse, accumulate_df, 'MOVIE_ACCUMULATE')
+
+    @classmethod
+    def __generate_movie_accumulate(cls, tmp_df, box_office_df):
+        merge_tmp = box_office_df.join(tmp_df, box_office_df.MOVIE_CODE == tmp_df.movieCd)
+        merge_tmp = merge_tmp.drop(merge_tmp.MOVIE_CODE) \
+                             .drop(merge_tmp.showRange) \
+                             .drop(merge_tmp.dailyBoxOfficeList) \
+                             .drop(merge_tmp.movieCd)
+        accumulate_df = merge_tmp.withColumnRenamed('salesAcc', 'SALES_ACC') \
+                                 .withColumnRenamed('audiAcc', 'AUDI_ACC')
+                             
+        return accumulate_df
+
+    @classmethod
+    def __select_acc(cls, df_movie_select, i):
+        dump_df = df_movie_select.withColumn('movieCd', col('dailyBoxOfficeList')[i].movieCd) \
+                                 .withColumn('salesAcc', col('dailyBoxOfficeList')[i].salesAcc) \
+                                 .withColumn('audiAcc', col('dailyBoxOfficeList')[i].audiAcc)
+                                 
+        return dump_df
+
+    @classmethod
+    def load_box_office_table_dbo_id(cls):
+        box_office_df = find_data(DataWarehouse, 'DAILY_BOXOFFICE')
+        box_office_df = box_office_df.select('DBO_ID', 'MOVIE_CODE').where(box_office_df.STD_DATE == cls.date)
+        return box_office_df
+
+    @classmethod
+    def __rename_columns(cls, tmp_df):
+        daily_boxoffice_df = tmp_df.withColumnRenamed('movieCd', 'MOVIE_CODE') \
+                                   .withColumnRenamed('movieNm', 'MOVIE_NAME') \
+                                   .withColumnRenamed('std_date', 'STD_DATE') \
+                                   .withColumnRenamed('rank', 'RANK') \
+                                   .withColumnRenamed('salesAmt', 'SALES_AMT') \
+                                   .withColumnRenamed('salesShare', 'SALES_SHARE') \
+                                   .withColumnRenamed('audiCnt', 'AUDI_CNT') \
+                                   .withColumnRenamed('scrnCnt', 'SCRN_CNT') \
+                                   .withColumnRenamed('showCnt', 'SHOW_CNT')
+                                   
+        return daily_boxoffice_df
+
+    @classmethod
+    def __select_columns(cls, df_movie_select, i):
+        dump_df = df_movie_select.withColumn('movieCd', col('dailyBoxOfficeList')[i].movieCd) \
+                                 .withColumn('movieNm', col('dailyBoxOfficeList')[i].movieNm) \
+                                 .withColumn('rank', col('dailyBoxOfficeList')[i].rank) \
+                                 .withColumn('salesAmt', col('dailyBoxOfficeList')[i].salesAmt) \
+                                 .withColumn('salesShare', col('dailyBoxOfficeList')[i].salesShare) \
+                                 .withColumn('audiCnt', col('dailyBoxOfficeList')[i].audiCnt) \
+                                 .withColumn('scrnCnt', col('dailyBoxOfficeList')[i].scrnCnt) \
+                                 .withColumn('showCnt', col('dailyBoxOfficeList')[i].showCnt) \
+                                 .withColumn("std_date", split(col("showRange"), "~").getItem(0))
+        dump_df = dump_df.drop(dump_df.dailyBoxOfficeList) \
+                         .drop(dump_df.showRange)
+                         
+        return dump_df
+
+    @classmethod
+    def __load_daily_box_office_json(cls, befor_cnt):
+        path = '/movie/daily_box_office/daliy_box_office_' + cal_std_day_yyyymmdd(befor_cnt) + '.json'
+        # path = '/movie_data/daily_box_office/daliy_box_office_' + cls.date + '.json'
+        movie_json = get_spark_session().read.json(path, encoding='UTF-8')
+
+        tmp = movie_json.select('boxOfficeResult.showRange', 'boxOfficeResult.dailyBoxOfficeList').first()
+        df_movie = get_spark_session().createDataFrame([tmp])
+
+        df_movie_select = df_movie.select('showRange', 'dailyBoxOfficeList')
+        return df_movie_select
+
+
+
+
+''' 내가짠코드
 from pyspark.sql.functions import col
 from infra.jdbc import DataWarehouse,save_data
 from infra.spark_session import get_spark_session
@@ -16,14 +124,28 @@ class DailyBoxOfficeTransformer:
         return str(year) + '-' + str(month) + '-' + str(day)
     
     
-    @classmethod  #데이터 HDFS에서 읽어오기
+    @classmethod  #데이터 HDFS에서 데이터프레임 으로 읽어오기
     def transform(cls):
         path = '/movie/daily_box_office/daliy_box_office_' + cls.std_day(1) + '.json'
         print(path)
         office_json = get_spark_session().read.json(path, encoding='UTF-8')
         office_json.show()
 
+        office_json_select = office_json.select('movieCd','movieNm','stdDate','rank','salesAmt','salesShare','audiCnt','scrnCnt','showCnt')
+       
+        office_json_select.show()
 
+
+        # office_json_select = office_json.withColumnRenamed('movieCd', 'MOVIE_CODE') \
+        #                             .withColumnRenamed('movieNm', 'MOVIE_NAME') \
+        #                             .withColumnRenamed('stdDate', 'STD_DATE') \
+        #                             .withColumnRenamed('rank', 'RANK') \
+        #                             .withColumnRenamed('salesAmt', 'SALES_AMT') \
+        #                             .withColumnRenamed('salesShare', 'SALES_SHARE') \
+        #                             .withColumnRenamed('audiCnt', 'AUDI_CNT') \
+        #                             .withColumnRenamed('scrnCnt', 'SCRN_CNT') \
+        #                             .withColumnRenamed('showCnt', 'SHOW_CNT')
+'''
 
 
 
@@ -42,55 +164,3 @@ class DailyBoxOfficeTransformer:
 
 
 
-# class DailyBoxOfficeTransformer:
-    
-#     # MOVIECD = '20215601'
-
-#     @classmethod
-#     def transform(cls):
-#         box_office_df = find_data(DataWarehouse, 'DAILY_BOX_OFFICE')
-#         movie_code_list = box_office_df.select('MOVIE_CODE').rdd.flatMap(lambda x: x).collect()
-#         movie_code_list = np.unique(movie_code_list)
-
-#         path = '/movie_data/detail/movie_detail_' + movie_code_list[0] + '.json'
-#         movie_json = get_spark_session().read.json(path, encoding='UTF-8')
-#         tmp = movie_json.select('movieInfoResult.movieInfo').first()
-#         df_movie = get_spark_session().createDataFrame(tmp)
-
-#         df_movie_select = df_movie.select('movieCd', 'movieNm', 'prdtYear', 'showTm', 'openDt', 'typeNm', 'nations', 'directors', 'audits')
-        
-#         dump_df = df_movie_select.withColumn('nations', col('nations')[0].nationNm) \
-#                                 .withColumn('directors', col('directors')[0].peopleNm) \
-#                                 .withColumn('audits', col('audits')[0].watchGradeNm)
-#         tmp_df = dump_df
-
-#         for i in range(1, len(movie_code_list)):
-#             path = '/movie_data/detail/movie_detail_' + movie_code_list[i] + '.json'
-#             movie_json = get_spark_session().read.json(path, encoding='UTF-8')
-#             tmp = movie_json.select('movieInfoResult.movieInfo').first()
-#             df_movie = get_spark_session().createDataFrame(tmp)
-
-#             df_movie_select = df_movie.select('movieCd', 'movieNm', 'stdDate', 'rank', 'salesAmt', 'salesShare', 'audiCnt', 'scrnCnt', 'showCnt')
-            
-#             dump_df = df_movie_select.withColumn('nations', col('nations')[0].nationNm) \
-#                                     .withColumn('directors', col('directors')[0].peopleNm) \
-#                                     .withColumn('audits', col('audits')[0].watchGradeNm)
-
-#             tmp_df = tmp_df.union(dump_df).distinct()
-
-#         daily_box_offce_df = tmp_df.withColumnRenamed('movieCd', 'MOVIE_CODE') \
-#                                 .withColumnRenamed('movieNm', 'MOVIE_NAME') \
-#                                 .withColumnRenamed('stdDate', 'STD_DATE') \
-#                                 .withColumnRenamed('rank', 'RANK') \
-#                                 .withColumnRenamed('salesAmt', 'SALES_AMT') \
-#                                 .withColumnRenamed('salesShare', 'SALES_SHARE') \
-#                                 .withColumnRenamed('audiCnt', 'AUDI_CNT') \
-#                                 .withColumnRenamed('scrnCnt', 'SCRN_CNT') \
-#                                 .withColumnRenamed('showCnt', 'SHOW_CNT')
-#         daily_box_offce_df.show()
-
-#         # d = df_movie.select('genres')
-#         # d.show()
-#         # d.withColumn('genres', col('genres')[0].genreNm).show()
-
-#         save_data(DataWarehouse, daily_box_offce_df, 'DAILY_BOXOFFICE')

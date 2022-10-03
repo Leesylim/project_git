@@ -21,7 +21,7 @@ class DailyBoxOfficeExtractor:
 
             try:
                 res = execute_rest_api('get', cls.URL, {}, params)
-                file_name = 'daliy_box_office_' + params['targetDt'] + '.json'
+                file_name = 'daliy_box_office_' + cal_std_day(i) + '.json'
                 cls.__upload_to_hdfs(file_name, res)
 
             except Exception as e:
@@ -33,7 +33,7 @@ class DailyBoxOfficeExtractor:
     def __create_param(cls, befor_day):
         return {
             'key': cls.SERVICE_KEY,
-            'targetDt': cal_std_day(befor_day)
+            'targetDt': cal_std_day_yyyymmdd(befor_day)
         }
 
     @classmethod
